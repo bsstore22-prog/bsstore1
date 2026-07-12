@@ -1,0 +1,116 @@
+const DEFAULT_USERNAME = "basel";
+
+const buttonConfig = {
+  whatsapp: {
+    id: "whatsappBtn",
+    getUrl: (value) => {
+      const digits = String(value || "").replace(/[^0-9]/g, "");
+      return digits ? `https://wa.me/${digits}` : "";
+    }
+  },
+  facebook: { id: "facebookBtn", getUrl: (value) => value },
+  instagram: { id: "instagramBtn", getUrl: (value) => value },
+  tiktok: { id: "tiktokBtn", getUrl: (value) => value },
+  x: { id: "xBtn", getUrl: (value) => value }
+};
+
+let toastTimer = null;
+
+function getRequestedUsername() {
+  const params = new URLSearchParams(window.location.search);
+  return (params.get("user") || DEFAULT_USERNAME).trim().toLowerCase();
+}
+
+async function loadProfiles() {
+  const response = await fetch("profiles.json", { cache: "no-store" });
+  if (!response.ok) throw new Error("Could not load profiles.json");
+  return response.json();
+}
+
+function openLink(url) {
+  if (url) window.open(url, "_blank", "noopener,noreferrer");
+}
+
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove("show"), 1800);
+}
+
+function setButtonVisibility(buttonId, value) {
+  const button = document.getElementById(buttonId);
+  button.hidden = !value;
+  return button;
+}
+
+function renderProfile(customer) {
+  document.title = `${customer.name || "Digital Profile"} | OneTap`;
+  document.getElementById("name").textContent = customer.name || "";
+  document.getElementById("job").textContent = customer.job || "";
+
+  const avatar = document.getElementById("avatar");
+  avatar.src = customer.image || "images/default-avatar.svg";
+  avatar.alt = customer.name ? `${customer.name}'s profile picture` : "Profile picture";
+  avatar.onerror = () => {
+    avatar.onerror = null;
+    avatar.src = "images/default-avatar.svg";
+  };
+
+  Object.entries(buttonConfig).forEach(([key, config], index) => {
+    const value = customer[key];
+    const button = setButtonVisibility(config.id, value);
+    if (!value) return;
+
+    button.style.setProperty("--button-order", index);
+    button.addEventListener("click", () => openLink(config.getUrl(value)));
+  });
+
+  const instapayButton = setButtonVisibility("instapayBtn", customer.instapay);
+  if (customer.instapay) {
+    const value = customer.instapay;
+    const isLink = /^https?:\/\//i.test(value);
+    document.getElementById("instapayLabel").textContent = isLink
+      ? "InstaPay"
+      : "InstaPay · Copy Username";
+
+    instapayButton.style.setProperty("--button-order", 1);
+    instapayButton.addEventListener("click", async () => {
+      if (isLink) return openLink(value);
+      try {
+        await navigator.clipboard.writeText(value);
+      } catch {
+        const input = document.createElement("input");
+        input.value = value;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand("copy");
+        input.remove();
+      }
+      showToast("Username copied!");
+    });
+  }
+
+  document.getElementById("card").classList.add("is-loaded");
+}
+
+function renderNotFound(username) {
+  document.getElementById("name").textContent = "Profile not found";
+  document.getElementById("job").textContent = `No customer named “${username}”`;
+  document.getElementById("avatar").src = "images/default-avatar.svg";
+  document.querySelector(".actions").hidden = true;
+  document.getElementById("card").classList.add("is-loaded");
+}
+
+(async function init() {
+  const username = getRequestedUsername();
+  try {
+    const profiles = await loadProfiles();
+    const customer = profiles[username];
+    customer ? renderProfile(customer) : renderNotFound(username);
+  } catch (error) {
+    console.error(error);
+    renderNotFound(username);
+  }
+})();
